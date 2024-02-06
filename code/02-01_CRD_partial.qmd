@@ -80,6 +80,13 @@ ggplot(crd_dfw, aes(x = krate_kgha,
 ```
 
 ```{r nk boxplot}
+ggplot(crd_dfw, aes(x= nrate_kgha, 
+                    y= yield_kgha,
+                    color = nrate_kgha
+                    ))+
+  geom_boxplot()+
+  geom_jitter()+
+  facet_grid(.~krate_kgha)
 
 ```
 
@@ -97,8 +104,8 @@ Below we change the default to sum-to-zero ("contr.sum") before fitting the mode
 options(contrasts = c("contr.sum", "contr.poly"))
 
 # Model fitting
-crd_mod 
-
+crd_mod <- lm(yield_kgha~ nrate_kgha + krate_kgha + nrate_kgha:krate_kgha, data = crd_dfw)
+crd_mod
 # Summary
 summary(crd_mod)
 ```
@@ -124,6 +131,7 @@ If data is balanced, type 1 and 3 give same results.
 For sake of peace of mind, it is simpler to just always use type 3.  
 
 ```{r ANOVA}
+Anova(crd_mod, type = 3)
 
 ```
 
@@ -143,7 +151,8 @@ Before we do that, let's check our model assumptions. Remember, a model is only 
 First, let's extract our model residuals, and also create studentized residuals.  
 
 ```{r crd_resid}
-crd_resid 
+crd_resid <- broom::augment(crd_mod) %>%
+  mutate(.studresid = rstudent(crd_mod))
 
 crd_resid
 ```
@@ -164,7 +173,12 @@ Now, let's recap the linear model assumptions:
 - Adding a `geom_smooth()` helps with that conclusion. We want to see the smooth line and error bands comprising 0 on the y axis.  
 
 ```{r }
-
+ggplot(data =crd_resid, aes(x=.fitted,
+                            y = .studresid))+
+  geom_point(shape =21,
+             fill = "purple", size =3, alpha = .7)+
+  geom_hline(yintercept = c(-3,0,3), color = "red")+
+  geom_smooth()
 ```
 Looks great! Next.  
 
@@ -194,6 +208,9 @@ Looks great! Next.
 
 On the QQ plot, we want to see residuals on the black line, meaning they follow their theoretical normal distribution.  
 ```{r}
+ggplot(crd_resid, aes(sample = .studresid))+
+  stat_qq()+
+  stat_qq_line()
 
 ```
 
@@ -201,7 +218,9 @@ It's common for some residuals in the tails being off, especially with low N (N=
 
 
 ```{r}
-
+ggplot(crd_resid, aes(x = .studresid))+
+  geom_density()+
+  scale_x_continuous(breaks = c(-3,0,3), limits = c(-3,3))
 
 ```
 Although the density is a bit higher than expected at the tails, it still looks ok.  
@@ -239,19 +258,19 @@ This is specially important IF the data is unbalanced (i.e., missing data), in w
 Also, when extracting means from an interaction, there are few different ways of doing it, and which one we do depends on the study objectives. Let's explore them below.
 
 ```{r interaction means all}
-crd_means_all 
+crd_means_all <- emmeans::emmeans(crd_mod, ~nrate_kgha:krate_kgha)
 
 crd_means_all
 ```
 
 ```{r interaction means n inside k}
-crd_means_nk 
+crd_means_nk <- emmeans(crd_mod, ~nrate_kgha | krate_kgha)
 
 crd_means_nk
 ```
 
 ```{r interaction means k inside n}
-crd_means_kn 
+crd_means_kn <- emmeans(crd_mod, ~krate_kgha | nrate_kgha)
 
 crd_means_kn
 ```
@@ -264,7 +283,8 @@ Now that we extracted means, let's perform pairwise comparisons among them.
 First, let's extract means for all 3 types of interaction means extracted above. After that, we'll make a decision on which one to use.
 
 ```{r interaction pwc all}
-crd_cld_all <- 
+crd_cld_all <- multcomp::cld(crd_means_all, reversed =T, Letters = letters,
+                             adjust="none")  #adjust ="tukey"
 
 crd_cld_all
 ```
@@ -292,7 +312,10 @@ Notice how different types of pwc (which are actually coming from differences in
 I would like to test the hypothesis of everything compared to everything else, which corresponds to our first method using `:`. Let's do that below and some light wrangling.    
 
 ```{r selected pwc}
-crd_cld_selected <- crd_cld_all 
+crd_cld_selected <- crd_cld_all %>% 
+  as_data_frame()%>%
+  mutate(letter = trimws(.group)) %>%
+  mutate(trtname = paste0(nrate_kgha, "+", krate_kgha))
 
 crd_cld_selected
 ```
@@ -301,10 +324,14 @@ crd_cld_selected
 Let's plot our results, including both **raw data** (for allowing our audience to inspect data distribution) and **statistical model summary (i.e., letter separation)** for inference purposes.    
 
 ```{r crd final plot}
-
-  # Raw data and boxplots  
+ggplot()+
+    # Raw data and boxplots  
+  geom_boxplot(data = crd_dfw, aes(x = trtname, y = yield_kgha))+
 
   # Adding letters
+  geom_label(data = crd_cld_selected, aes(x=trtname, y= emmean, 
+                                          label = letter))
+
 
 ```
 
